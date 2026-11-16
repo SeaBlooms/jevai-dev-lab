@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jev AI sandbox</title>
+    <style>
+      :root {
+        --bg: #12141a;
+        --panel: #1a1d26;
+        --ink: #e8e6e1;
+        --muted: #9a958c;
+        --line: #2c3040;
+        --accent: #c4a35a;
+        --danger: #c45c5c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(ellipse 80% 50% at 10% 0%, #24304a 0%, transparent 55%),
+          radial-gradient(ellipse 60% 40% at 100% 100%, #2a2218 0%, transparent 50%),
+          var(--bg);
+        color: var(--ink);
+      }
+      main {
+        max-width: 44rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      h1 {
+        font-family: "IBM Plex Serif", Georgia, serif;
+        font-weight: 500;
+        font-size: 2rem;
+        letter-spacing: -0.02em;
+        margin: 0 0 0.35rem;
+      }
+      .lede {
+        color: var(--muted);
+        margin: 0 0 1.75rem;
+        line-height: 1.45;
+      }
+      label {
+        display: block;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin-bottom: 0.4rem;
+      }
+      .row {
+        margin-bottom: 1.1rem;
+      }
+      input,
+      select,
+      textarea,
+      button {
+        font: inherit;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        background: var(--panel);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 0.35rem;
+        padding: 0.65rem 0.75rem;
+      }
+      textarea {
+        min-height: 8rem;
+        resize: vertical;
+        line-height: 1.45;
+      }
+      .actions {
+        display: flex;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+        margin: 1rem 0 1.5rem;
+      }
+      button {
+        background: var(--accent);
+        color: #1a1408;
+        border: none;
+        border-radius: 0.35rem;
+        padding: 0.55rem 1rem;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      button.secondary {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--line);
+        font-weight: 500;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+      #status {
+        min-height: 1.25rem;
+        font-size: 0.875rem;
+        color: var(--muted);
+        margin-bottom: 0.75rem;
+      }
+      #status.error {
+        color: var(--danger);
+      }
+      #out {
+        white-space: pre-wrap;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 0.35rem;
+        padding: 1rem;
+        min-height: 6rem;
+        line-height: 1.5;
+      }
+      .meta {
+        font-size: 0.75rem;
+        color: var(--muted);
+        margin-top: 0.5rem;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Jev</h1>
+      <p class="lede">Local sandbox. Persona stays on the server; you send prompts and get text back.</p>
+
+      <div class="row">
+        <label for="token">API token</label>
+        <input id="token" type="password" autocomplete="off" placeholder="JEV_API_TOKEN" />
+      </div>
+
+      <div class="row">
+        <label for="case">Saved case</label>
+        <select id="case">
+          <option value="">— free text —</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt" placeholder="Ask Jev…"></textarea>
+      </div>
+
+      <div class="actions">
+        <button id="run" type="button">Run</button>
+        <button id="reload" class="secondary" type="button">Reload cases</button>
+      </div>
+
+      <div id="status"></div>
+      <div id="out"></div>
+      <div class="meta" id="meta"></div>
+    </main>
+    <script>
+      const tokenEl = document.getElementById("token");
+      const caseEl = document.getElementById("case");
+      const promptEl = document.getElementById("prompt");
+      const statusEl = document.getElementById("status");
+      const outEl = document.getElementById("out");
+      const metaEl = document.getElementById("meta");
+      const runBtn = document.getElementById("run");
+
+      tokenEl.value = localStorage.getItem("jev_api_token") || "";
+      tokenEl.addEventListener("change", () => {
+        localStorage.setItem("jev_api_token", tokenEl.value);
+      });
+
+      function authHeaders() {
+        return {
+          Authorization: "Bearer " + tokenEl.value,
+          "Content-Type": "application/json",
+        };
+      }
+
+      function setStatus(msg, isError) {
+        statusEl.textContent = msg || "";
+        statusEl.classList.toggle("error", !!isError);
+      }
+
+      async function loadCases() {
+        setStatus("Loading cases…");
+        const res = await fetch("/prompts", { headers: authHeaders() });
+        if (!res.ok) {
+          setStatus("Failed to load cases (" + res.status + "). Check the token.", true);
+          return;
+        }
+        const cases = await res.json();
+        const previous = caseEl.value;
+        caseEl.innerHTML = '<option value="">— free text —</option>';
+        for (const c of cases) {
+          const opt = document.createElement("option");
+          opt.value = c.id;
+          opt.textContent = c.title + " (" + c.id + ")";
+          opt.dataset.prompt = c.prompt;
+          caseEl.appendChild(opt);
+        }
+        if ([...caseEl.options].some((o) => o.value === previous)) {
+          caseEl.value = previous;
+        }
+        setStatus(cases.length + " case(s) loaded");
+      }
+
+      caseEl.addEventListener("change", () => {
+        const opt = caseEl.selectedOptions[0];
+        if (opt && opt.value) {
+          promptEl.value = opt.dataset.prompt || "";
+        }
+      });
+
+      document.getElementById("reload").addEventListener("click", () => {
+        loadCases().catch((e) => setStatus(String(e), true));
+      });
+
+      runBtn.addEventListener("click", async () => {
+        localStorage.setItem("jev_api_token", tokenEl.value);
+        const caseId = caseEl.value;
+        const prompt = promptEl.value.trim();
+        if (!caseId && !prompt) {
+          setStatus("Enter a prompt or pick a case.", true);
+          return;
+        }
+        runBtn.disabled = true;
+        setStatus("Running…");
+        outEl.textContent = "";
+        metaEl.textContent = "";
+        try {
+          let res;
+          if (caseId && (!prompt || prompt === caseEl.selectedOptions[0].dataset.prompt)) {
+            res = await fetch("/v1/prompts/" + encodeURIComponent(caseId) + "/run", {
+              method: "POST",
+              headers: authHeaders(),
+            });
+          } else {
+            res = await fetch("/v1/complete", {
+              method: "POST",
+              headers: authHeaders(),
+              body: JSON.stringify({ prompt, case_id: caseId || null }),
+            });
+          }
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setStatus((body.detail || "Request failed") + " (" + res.status + ")", true);
+            return;
+          }
+          outEl.textContent = body.text || "";
+          metaEl.textContent =
+            "model=" + body.model + "  persona=" + body.persona_sha256 +
+            (body.case_id ? "  case=" + body.case_id : "");
+          setStatus("Done");
+        } catch (e) {
+          setStatus(String(e), true);
+        } finally {
+          runBtn.disabled = false;
+        }
+      });
+
+      loadCases().catch((e) => setStatus(String(e), true));
+    </script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+id: summarize
+title: Summarize a short paragraph
+prompt: |
+  Summarize the following in two sentences, then list three concrete next steps as a bullet list.
+
+  vanishaudio-site is a static React music portfolio. Each track page is a fullscreen
+  audio-reactive WebGL scene. Content lives in tracks.json; media is on Cloudflare R2.
+  There is no app backend except an Edge contact route. Sibling repos handle archive
+  migration, sync pitching ops, and radio.

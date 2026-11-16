@@ -2,6 +2,8 @@
 
 Local sandbox for the **Jev** persona: a checked-in system prompt in front of [Vercel AI Gateway](https://vercel.com/docs/ai-gateway/openai-compat), with a small REST API and a page for saved test prompts.
 
+Public GitHub: [SeaBlooms/jevai-dev-lab](https://github.com/SeaBlooms/jevai-dev-lab).
+
 Callers never send the system prompt and never see the gateway key. Bind is loopback-only (`127.0.0.1:8790`).
 
 ## Setup

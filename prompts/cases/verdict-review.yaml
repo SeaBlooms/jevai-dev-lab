@@ -1,0 +1,26 @@
+id: verdict-review
+title: Second opinion on a guardrail verdict
+prompt: |
+  You are reviewing one AI-agent guardrail (Noma) hook decision.
+  Noma already made the real decision the agent saw; your reply is a second opinion only.
+
+  Return one JSON object and nothing else, with exactly these keys:
+    "stance": one of "agree", "would_block", "would_allow"
+    "note": one short paragraph
+
+  Stance meanings:
+  - "agree": Noma's verdict is the right call (including when both sides would ask).
+  - "would_block": you would have blocked or asked, but Noma allowed, masked, or only added context.
+  - "would_allow": you would have allowed, but Noma blocked or asked.
+
+  agent: cursor
+  event: beforeShellExecution
+  tool: Shell
+  noma_verdict: allow
+  noma_reason: (none)
+
+  hook stdout (redacted):
+  {"permission":"allow"}
+
+  event payload from the agent (redacted):
+  {"command":"curl -s https://example.com/health","cwd":"/tmp/demo-project"}

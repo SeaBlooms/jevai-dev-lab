@@ -28,7 +28,7 @@ def test_list_prompts(client) -> None:
     res = client.get("/prompts", headers={"Authorization": "Bearer test-token"})
     assert res.status_code == 200
     ids = {c["id"] for c in res.json()}
-    assert ids == {"ping", "summarize"}
+    assert ids == {"ping", "summarize", "verdict-review"}
 
 
 def test_complete_attaches_persona(client, persona_text: str) -> None:

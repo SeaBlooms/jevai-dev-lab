@@ -35,6 +35,10 @@ def prompts_tree(tmp_path: Path, persona_text: str, monkeypatch: pytest.MonkeyPa
         "id: summarize\ntitle: Summarize\nprompt: Summarize this.\n",
         encoding="utf-8",
     )
+    (cases / "verdict-review.yaml").write_text(
+        "id: verdict-review\ntitle: Second opinion\nprompt: Return JSON stance and note.\n",
+        encoding="utf-8",
+    )
 
     static = tmp_path / "static"
     static.mkdir()

@@ -6,7 +6,7 @@ Requires `jev serve` running on 127.0.0.1:8790 and JEV_API_TOKEN set
 
   # from jevai-dev-lab/ (loads .env automatically)
   uv run python examples/prompt_once.py
-  uv run python examples/prompt_once.py "What is vanishaudio-site?"
+  uv run python examples/prompt_once.py "In one sentence, what do you do?"
   uv run python examples/prompt_once.py --case ping
 
   # from another repo (export the token, or pass --token)

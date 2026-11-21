@@ -36,7 +36,11 @@ def prompts_tree(tmp_path: Path, persona_text: str, monkeypatch: pytest.MonkeyPa
         encoding="utf-8",
     )
     (cases / "verdict-review.yaml").write_text(
-        "id: verdict-review\ntitle: Second opinion\nprompt: Return JSON stance and note.\n",
+        "id: verdict-review\ntitle: Second opinion\njson_mode: true\nprompt: Return JSON stance and note.\n",
+        encoding="utf-8",
+    )
+    (cases / "local-only.yaml").write_text(
+        "id: local-only\ntitle: Pinned to ollama\nbackend: ollama\nprompt: Stay on the LAN.\n",
         encoding="utf-8",
     )
 
@@ -54,6 +58,10 @@ def prompts_tree(tmp_path: Path, persona_text: str, monkeypatch: pytest.MonkeyPa
     return prompts
 
 
+OLLAMA_TEST_BASE = "http://ollama.test:11434/v1"
+OLLAMA_TEST_CHAT_URL = f"{OLLAMA_TEST_BASE}/chat/completions"
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
@@ -62,6 +70,8 @@ def settings() -> Settings:
         api_token="test-token",
         host="127.0.0.1",
         port=8790,
+        ollama_base_url=OLLAMA_TEST_BASE,
+        ollama_model="qwen3:8b",
     )
 
 
@@ -70,14 +80,24 @@ def persona_sha(persona_text: str) -> str:
     return hashlib.sha256(persona_text.encode("utf-8")).hexdigest()
 
 
-def _fake_gateway_handler(request: httpx.Request) -> httpx.Response:
-    assert request.url == GATEWAY_CHAT_URL
-    assert request.headers.get("Authorization") == "Bearer test-gateway-key"
+def _fake_upstream_handler(request: httpx.Request) -> httpx.Response:
     body = json.loads(request.content.decode("utf-8"))
+    if request.url == GATEWAY_CHAT_URL:
+        backend = "gateway"
+        assert request.headers.get("Authorization") == "Bearer test-gateway-key"
+        assert "reasoning_effort" not in body
+        assert "response_format" not in body
+    elif request.url == OLLAMA_TEST_CHAT_URL:
+        backend = "ollama"
+        assert "Authorization" not in request.headers
+        assert body["reasoning_effort"] == "none"
+    else:
+        raise AssertionError(f"unexpected upstream URL {request.url}")
     assert body["messages"][0]["role"] == "system"
     assert body["messages"][1]["role"] == "user"
     system = body["messages"][0]["content"]
     user = body["messages"][1]["content"]
+    json_mode = body.get("response_format") == {"type": "json_object"}
     return httpx.Response(
         200,
         json={
@@ -86,7 +106,7 @@ def _fake_gateway_handler(request: httpx.Request) -> httpx.Response:
                 {
                     "message": {
                         "role": "assistant",
-                        "content": f"ECHO system={system!r} user={user!r}",
+                        "content": f"ECHO via={backend} json={json_mode} system={system!r} user={user!r}",
                     }
                 }
             ],
@@ -94,10 +114,38 @@ def _fake_gateway_handler(request: httpx.Request) -> httpx.Response:
     )
 
 
+def _make_client(settings: Settings, handler) -> TestClient:
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return TestClient(create_app(settings, http_client=http))
+
+
 @pytest.fixture
 def client(prompts_tree: Path, settings: Settings) -> TestClient:
-    transport = httpx.MockTransport(_fake_gateway_handler)
-    http = httpx.AsyncClient(transport=transport)
-    app = create_app(settings, http_client=http)
-    with TestClient(app) as test_client:
+    with _make_client(settings, _fake_upstream_handler) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def client_with(prompts_tree: Path):
+    opened: list[TestClient] = []
+
+    def factory(custom: Settings) -> TestClient:
+        test_client = _make_client(custom, _fake_upstream_handler)
+        test_client.__enter__()
+        opened.append(test_client)
+        return test_client
+
+    yield factory
+    for test_client in opened:
+        test_client.__exit__(None, None, None)
+
+
+@pytest.fixture
+def ollama_down_client(prompts_tree: Path, settings: Settings) -> TestClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url == OLLAMA_TEST_CHAT_URL:
+            raise httpx.ConnectError("connection refused", request=request)
+        return _fake_upstream_handler(request)
+
+    with _make_client(settings, handler) as test_client:
         yield test_client

@@ -145,6 +145,15 @@
       </div>
 
       <div class="row">
+        <label for="backend">Backend</label>
+        <select id="backend">
+          <option value="">Server default</option>
+          <option value="gateway">gateway (AI Gateway)</option>
+          <option value="ollama">ollama (homelab)</option>
+        </select>
+      </div>
+
+      <div class="row">
         <label for="prompt">Prompt</label>
         <textarea id="prompt" placeholder="Ask Jev…"></textarea>
       </div>
@@ -166,11 +175,31 @@
       const outEl = document.getElementById("out");
       const metaEl = document.getElementById("meta");
       const runBtn = document.getElementById("run");
+      const backendEl = document.getElementById("backend");
 
       tokenEl.value = localStorage.getItem("jev_api_token") || "";
       tokenEl.addEventListener("change", () => {
         localStorage.setItem("jev_api_token", tokenEl.value);
       });
+
+      backendEl.value = localStorage.getItem("jev_backend") || "";
+      backendEl.addEventListener("change", () => {
+        localStorage.setItem("jev_backend", backendEl.value);
+      });
+
+      async function loadHealth() {
+        const res = await fetch("/health");
+        if (!res.ok) return;
+        const health = await res.json();
+        const backends = health.backends || {};
+        for (const opt of backendEl.options) {
+          const info = backends[opt.value];
+          if (info) {
+            opt.textContent = opt.value + " (" + info.model + ")" + (info.configured ? "" : " — not configured");
+          }
+        }
+        backendEl.options[0].textContent = "Server default (" + health.default_backend + ")";
+      }
 
       function authHeaders() {
         return {
@@ -230,10 +259,12 @@
         setStatus("Running…");
         outEl.textContent = "";
         metaEl.textContent = "";
+        const backend = backendEl.value || null;
         try {
           let res;
           if (caseId && (!prompt || prompt === caseEl.selectedOptions[0].dataset.prompt)) {
-            res = await fetch("/v1/prompts/" + encodeURIComponent(caseId) + "/run", {
+            const query = backend ? "?backend=" + encodeURIComponent(backend) : "";
+            res = await fetch("/v1/prompts/" + encodeURIComponent(caseId) + "/run" + query, {
               method: "POST",
               headers: authHeaders(),
             });
@@ -241,7 +272,7 @@
             res = await fetch("/v1/complete", {
               method: "POST",
               headers: authHeaders(),
-              body: JSON.stringify({ prompt, case_id: caseId || null }),
+              body: JSON.stringify({ prompt, case_id: caseId || null, backend }),
             });
           }
           const body = await res.json().catch(() => ({}));
@@ -251,7 +282,7 @@
           }
           outEl.textContent = body.text || "";
           metaEl.textContent =
-            "model=" + body.model + "  persona=" + body.persona_sha256 +
+            "backend=" + body.backend + "  model=" + body.model + "  persona=" + body.persona_sha256 +
             (body.case_id ? "  case=" + body.case_id : "");
           setStatus("Done");
         } catch (e) {
@@ -261,6 +292,7 @@
         }
       });
 
+      loadHealth().catch(() => {});
       loadCases().catch((e) => setStatus(String(e), true));
     </script>
   </body>

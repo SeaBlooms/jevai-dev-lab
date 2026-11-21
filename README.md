@@ -47,7 +47,7 @@ Bearer `JEV_API_TOKEN` on every route except `GET /health`.
 | Name | Upstream | Model |
 | --- | --- | --- |
 | `gateway` | Vercel AI Gateway (`AI_GATEWAY_API_KEY`) | `JEV_MODEL`, default `anthropic/claude-sonnet-5` |
-| `ollama` | Homelab Ollama, `OLLAMA_BASE_URL` (default `http://192.168.1.128:11434/v1`, no key) | `OLLAMA_MODEL`, default `qwen3:8b` |
+| `ollama` | Ollama, `OLLAMA_BASE_URL` (default `http://localhost:11434/v1`; set your LAN box in `.env`, no key) | `OLLAMA_MODEL`, default `qwen3:8b` |
 
 Each request uses the first of: the request's `backend` (body field or `?backend=` query), the case's `backend:` key, then `JEV_BACKEND` (default `gateway`). There is no automatic fallback: if the homelab box is down, the call fails with 502 `Homelab Ollama unreachable …` so replies from different models never get mixed up.
 

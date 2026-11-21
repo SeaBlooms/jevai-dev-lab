@@ -22,7 +22,7 @@ BACKENDS: tuple[BackendName, ...] = get_args(BackendName)
 
 GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 DEFAULT_GATEWAY_MODEL = "anthropic/claude-sonnet-5"
-DEFAULT_OLLAMA_BASE_URL = "http://192.168.1.128:11434/v1"
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_OLLAMA_MODEL = "qwen3:8b"
 
 

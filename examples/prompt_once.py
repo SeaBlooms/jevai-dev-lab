@@ -40,6 +40,7 @@ def main() -> None:
         help="User prompt (ignored when --case is set)",
     )
     parser.add_argument("--case", metavar="ID", help="Run a saved case instead (e.g. ping)")
+    parser.add_argument("--backend", choices=("gateway", "ollama"), help="Override the server default backend")
     parser.add_argument("--base-url", default=os.getenv("JEV_BASE_URL", DEFAULT_BASE))
     parser.add_argument(
         "--token",
@@ -59,14 +60,15 @@ def main() -> None:
     base = args.base_url.rstrip("/")
 
     try:
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=330.0) as client:
             if args.case:
-                response = client.post(f"{base}/v1/prompts/{args.case}/run", headers=headers)
+                params = {"backend": args.backend} if args.backend else None
+                response = client.post(f"{base}/v1/prompts/{args.case}/run", headers=headers, params=params)
             else:
                 response = client.post(
                     f"{base}/v1/complete",
                     headers=headers,
-                    json={"prompt": args.prompt},
+                    json={"prompt": args.prompt, "backend": args.backend},
                 )
     except httpx.ConnectError as exc:
         print(f"Cannot reach {base}. Is `uv run jev serve` running?\n{exc}", file=sys.stderr)
@@ -78,7 +80,8 @@ def main() -> None:
 
     data = response.json()
     # Full JSON on stderr if you want metadata; the model text on stdout for piping.
-    print(json.dumps({k: data[k] for k in ("model", "persona_sha256", "case_id") if k in data}, indent=2), file=sys.stderr)
+    meta = {k: data[k] for k in ("backend", "model", "persona_sha256", "case_id") if k in data}
+    print(json.dumps(meta, indent=2), file=sys.stderr)
     print(data["text"])
 
 

@@ -1,4 +1,4 @@
-"""CLI: jev serve | jev run <id> | jev smoke."""
+"""CLI: jev serve | jev run <id> | jev smoke | jev compare <id>."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ import httpx
 import uvicorn
 
 from jevai.api import create_app
-from jevai.cases import get_case, load_cases
-from jevai.config import load_settings
-from jevai.gateway import GatewayError, complete
+from jevai.cases import Case, get_case, load_cases
+from jevai.config import BACKENDS, BackendName, Settings, load_settings
+from jevai.gateway import UpstreamError, complete
 from jevai.persona import load_persona
 
 
@@ -28,8 +28,13 @@ def main(argv: list[str] | None = None) -> None:
 
     run = sub.add_parser("run", help="Run a saved case once and print JSON")
     run.add_argument("case_id", help="Case id from prompts/cases/")
+    run.add_argument("--backend", choices=BACKENDS, default=None, help="Override case / JEV_BACKEND")
 
-    sub.add_parser("smoke", help="One live ping through the gateway")
+    smoke = sub.add_parser("smoke", help="One live ping through a backend")
+    smoke.add_argument("--backend", choices=BACKENDS, default=None, help="Override JEV_BACKEND")
+
+    compare = sub.add_parser("compare", help="Run a saved case on every backend and print both replies")
+    compare.add_argument("case_id", help="Case id from prompts/cases/")
 
     args = parser.parse_args(argv)
 
@@ -51,60 +56,95 @@ def main(argv: list[str] | None = None) -> None:
             print(f"host {host!r} not allowed; use loopback only", file=sys.stderr)
             raise SystemExit(1)
         app = create_app(settings)
-        print(f"Jev sandbox → http://{host}:{port}/  (health: /health)")
+        print(f"Jev sandbox → http://{host}:{port}/  (health: /health, default backend: {settings.default_backend})")
         uvicorn.run(app, host=host, port=port, log_level="info")
         return
 
     if args.command == "run":
-        case = get_case(args.case_id)
-        if case is None:
-            known = ", ".join(c.id for c in load_cases()) or "(none)"
-            print(f"unknown case {args.case_id!r}; known: {known}", file=sys.stderr)
-            raise SystemExit(1)
-        result = asyncio.run(_complete_once(settings, case.prompt))
-        print(
-            json.dumps(
-                {
-                    "text": result["text"],
-                    "model": result["model"],
-                    "persona_sha256": result["persona_sha256"],
-                    "case_id": case.id,
-                },
-                indent=2,
-            )
-        )
+        case = _require_case(args.case_id)
+        backend = args.backend or case.backend
+        try:
+            result = asyncio.run(_complete_once(settings, case.prompt, backend, json_mode=case.json_mode))
+        except UpstreamError as exc:
+            print(f"upstream error: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        print(json.dumps({**result, "case_id": case.id}, indent=2))
         return
 
     if args.command == "smoke":
-        if not settings.gateway_configured:
+        backend = settings.backend(args.backend)
+        if not backend.configured:
             print(
                 "AI_GATEWAY_API_KEY is missing. Copy it into jevai-dev-lab/.env (see .env.example).",
                 file=sys.stderr,
             )
             raise SystemExit(1)
-        result = asyncio.run(_complete_once(settings, "Reply with exactly: OK"))
-        print(f"smoke ok model={result['model']} persona={result['persona_sha256'][:12]}…")
+        try:
+            result = asyncio.run(_complete_once(settings, "Reply with exactly: OK", backend.name))
+        except UpstreamError as exc:
+            print(f"upstream error: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        print(f"smoke ok backend={result['backend']} model={result['model']} persona={result['persona_sha256'][:12]}…")
         print(result["text"])
+        return
+
+    if args.command == "compare":
+        case = _require_case(args.case_id)
+        out = asyncio.run(_compare(settings, case))
+        print(json.dumps(out, indent=2))
+        if all("error" in r for r in out["results"].values()):
+            raise SystemExit(1)
         return
 
     parser.error(f"unknown command {args.command}")
 
 
-async def _complete_once(settings, prompt: str) -> dict[str, str]:
+def _require_case(case_id: str) -> Case:
+    case = get_case(case_id)
+    if case is None:
+        known = ", ".join(c.id for c in load_cases()) or "(none)"
+        print(f"unknown case {case_id!r}; known: {known}", file=sys.stderr)
+        raise SystemExit(1)
+    return case
+
+
+async def _complete_once(
+    settings: Settings,
+    prompt: str,
+    backend_name: BackendName | None,
+    *,
+    json_mode: bool = False,
+) -> dict[str, str]:
     persona = load_persona()
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            out = await complete(
-                api_key=settings.gateway_api_key,
-                model=settings.model,
-                system=persona.text,
-                user=prompt,
-                client=client,
-            )
-    except GatewayError as exc:
-        print(f"gateway error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-    return {"text": out.text, "model": out.model, "persona_sha256": persona.sha256}
+    backend = settings.backend(backend_name)
+    async with httpx.AsyncClient() as client:
+        out = await complete(backend, system=persona.text, user=prompt, json_mode=json_mode, client=client)
+    return {
+        "text": out.text,
+        "model": out.model,
+        "backend": out.backend,
+        "persona_sha256": persona.sha256,
+    }
+
+
+async def _compare(settings: Settings, case: Case) -> dict[str, object]:
+    persona = load_persona()
+
+    async def one(name: BackendName, client: httpx.AsyncClient) -> dict[str, str]:
+        backend = settings.backend(name)
+        try:
+            out = await complete(backend, system=persona.text, user=case.prompt, json_mode=case.json_mode, client=client)
+        except UpstreamError as exc:
+            return {"model": backend.model, "error": str(exc)}
+        return {"model": out.model, "text": out.text}
+
+    async with httpx.AsyncClient() as client:
+        replies = await asyncio.gather(*(one(name, client) for name in BACKENDS))
+    return {
+        "case_id": case.id,
+        "persona_sha256": persona.sha256,
+        "results": dict(zip(BACKENDS, replies, strict=True)),
+    }
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from jevai.config import CASES_DIR
+from jevai.config import CASES_DIR, BackendName, parse_backend
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,8 @@ class Case:
     id: str
     title: str
     prompt: str
+    backend: BackendName | None = None
+    json_mode: bool = False
 
 
 def load_cases(directory: Path | None = None) -> list[Case]:
@@ -30,7 +32,19 @@ def load_cases(directory: Path | None = None) -> list[Case]:
         prompt = str(data.get("prompt") or "").strip()
         if not case_id or not prompt:
             raise ValueError(f"Case {path.name} needs non-empty id and prompt")
-        cases.append(Case(id=case_id, title=title, prompt=prompt))
+        try:
+            backend = parse_backend(data.get("backend"))
+        except ValueError as exc:
+            raise ValueError(f"Case {path.name}: {exc}") from exc
+        cases.append(
+            Case(
+                id=case_id,
+                title=title,
+                prompt=prompt,
+                backend=backend,
+                json_mode=bool(data.get("json_mode", False)),
+            )
+        )
     return cases
 
 

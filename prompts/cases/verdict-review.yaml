@@ -1,5 +1,6 @@
 id: verdict-review
 title: Second opinion on a guardrail verdict
+json_mode: true
 prompt: |
   You are reviewing one AI-agent guardrail (Noma) hook decision.
   Noma already made the real decision the agent saw; your reply is a second opinion only.

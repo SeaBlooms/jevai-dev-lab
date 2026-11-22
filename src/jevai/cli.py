@@ -50,10 +50,10 @@ def main(argv: list[str] | None = None) -> None:
         host = args.host or settings.host
         port = args.port or settings.port
         # Re-validate host if overridden on CLI
-        from jevai.config import ALLOWED_HOSTS
+        from jevai.config import host_allowed
 
-        if host not in ALLOWED_HOSTS:
-            print(f"host {host!r} not allowed; use loopback only", file=sys.stderr)
+        if not host_allowed(host):
+            print(f"host {host!r} not allowed; use loopback only (0.0.0.0 needs JEV_CONTAINER=1)", file=sys.stderr)
             raise SystemExit(1)
         app = create_app(settings)
         print(f"Jev sandbox → http://{host}:{port}/  (health: /health, default backend: {settings.default_backend})")

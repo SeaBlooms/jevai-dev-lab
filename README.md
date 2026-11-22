@@ -4,7 +4,7 @@ Local sandbox for the **Jev** persona: a pinned-persona second-opinion service f
 
 Public GitHub: [SeaBlooms/jevai-dev-lab](https://github.com/SeaBlooms/jevai-dev-lab).
 
-Callers never send the system prompt and never see the gateway key. Bind is loopback-only (`127.0.0.1:8790`); only the upstream model call leaves the machine.
+Callers never send the system prompt and never see the gateway key. Bind is loopback-only (`127.0.0.1:8790`); only the upstream model call leaves the machine. In a container it binds `0.0.0.0` inside the container and the port is published on the host's loopback only (see [Container](#container)).
 
 ## Setup
 
@@ -100,8 +100,27 @@ See [`.env.example`](.env.example): `AI_GATEWAY_API_KEY`, `JEV_MODEL` (default `
 
 `OLLAMA_BASE_URL` and `OLLAMA_MODEL` use the same names as `local-llm-workspace`, so values exported in your shell for that repo also apply here (shell env wins over `.env`).
 
+## Container
+
+Image: `ghcr.io/seablooms/jevai-dev-lab` (amd64 and arm64), built by [`.github/workflows/image.yml`](.github/workflows/image.yml) on pushes to `main` and `v*` tags. Pull requests only build and smoke-test it.
+
+- The image sets `JEV_CONTAINER=1` and `JEV_HOST=0.0.0.0`. Outside a container, `0.0.0.0` is still refused, and `JEV_CONTAINER=1` does not allow any other address.
+- `OLLAMA_BASE_URL` defaults to `http://host.docker.internal:11434/v1` in the image, for an Ollama running natively on the Docker host. Map it with `extra_hosts: host.docker.internal:host-gateway`.
+- Pass secrets as environment variables (`JEV_API_TOKEN`, `AI_GATEWAY_API_KEY`). There is no `.env` inside the image.
+- Publish the port on loopback only (`127.0.0.1:8790:8790`) and reach it over SSH.
+- `prompts/` is baked in. To edit the persona without a rebuild, bind-mount `./prompts:/app/prompts:ro`; the server reloads `system.md` when it changes.
+
+```bash
+docker run -d --name jev -p 127.0.0.1:8790:8790 \
+  --add-host host.docker.internal:host-gateway \
+  -e JEV_API_TOKEN=... -e AI_GATEWAY_API_KEY=... \
+  ghcr.io/seablooms/jevai-dev-lab:latest
+```
+
+The vanishai deployment, next to `aidr-hook-observability`, is described in that repo's [`deploy/README-server.md`](https://github.com/SeaBlooms/aidr-hook-observability/blob/main/deploy/README-server.md).
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
 
-Out of scope for this pass: tools, streaming, OpenAI-compatible alias, deploy.
+Out of scope for this pass: tools, streaming, OpenAI-compatible alias.

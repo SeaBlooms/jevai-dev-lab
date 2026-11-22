@@ -16,6 +16,7 @@ SYSTEM_PROMPT_PATH = PROMPTS_DIR / "system.md"
 STATIC_DIR = ROOT / "static"
 
 ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+CONTAINER_BIND = "0.0.0.0"
 
 BackendName = Literal["gateway", "ollama"]
 BACKENDS: tuple[BackendName, ...] = get_args(BackendName)
@@ -94,6 +95,13 @@ class Settings:
         raise ValueError(f"Unknown backend {name!r}; expected one of {list(BACKENDS)}")
 
 
+def host_allowed(host: str) -> bool:
+    """Loopback always; 0.0.0.0 only inside a container (JEV_CONTAINER=1), where Docker publishes the port."""
+    if host in ALLOWED_HOSTS:
+        return True
+    return host == CONTAINER_BIND and os.getenv("JEV_CONTAINER", "").strip() == "1"
+
+
 def parse_backend(value: str | None) -> BackendName | None:
     if value is None or not value.strip():
         return None
@@ -107,8 +115,11 @@ def load_settings(*, dotenv_path: Path | None = None) -> Settings:
     load_dotenv(dotenv_path or (ROOT / ".env"), override=False)
 
     host = os.getenv("JEV_HOST", "127.0.0.1").strip() or "127.0.0.1"
-    if host not in ALLOWED_HOSTS:
-        raise ValueError(f"JEV_HOST={host!r} is not allowed. Bind only to loopback: {sorted(ALLOWED_HOSTS)}")
+    if not host_allowed(host):
+        raise ValueError(
+            f"JEV_HOST={host!r} is not allowed. Bind only to loopback: {sorted(ALLOWED_HOSTS)} "
+            f"({CONTAINER_BIND} needs JEV_CONTAINER=1)"
+        )
 
     port_raw = os.getenv("JEV_PORT", "8790").strip() or "8790"
     try:

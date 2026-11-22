@@ -182,6 +182,49 @@ def test_bad_jev_backend_env(monkeypatch, tmp_path) -> None:
         assert "JEV_BACKEND" in str(exc)
 
 
+def _host_env(monkeypatch, tmp_path, host: str):
+    env = tmp_path / ".env"
+    env.write_text(f"JEV_API_TOKEN=t\nJEV_HOST={host}\n", encoding="utf-8")
+    for key in ("JEV_HOST", "JEV_API_TOKEN", "JEV_CONTAINER", "JEV_BACKEND"):
+        monkeypatch.delenv(key, raising=False)
+    return env
+
+
+def test_container_bind_needs_opt_in(monkeypatch, tmp_path) -> None:
+    env = _host_env(monkeypatch, tmp_path, "0.0.0.0")
+    try:
+        load_settings(dotenv_path=env)
+        raise AssertionError("expected ValueError without JEV_CONTAINER=1")
+    except ValueError as exc:
+        assert "JEV_CONTAINER=1" in str(exc)
+    finally:
+        monkeypatch.delenv("JEV_HOST", raising=False)
+        monkeypatch.delenv("JEV_API_TOKEN", raising=False)
+
+
+def test_container_bind_allowed_in_container(monkeypatch, tmp_path) -> None:
+    env = _host_env(monkeypatch, tmp_path, "0.0.0.0")
+    monkeypatch.setenv("JEV_CONTAINER", "1")
+    try:
+        assert load_settings(dotenv_path=env).host == "0.0.0.0"
+    finally:
+        monkeypatch.delenv("JEV_HOST", raising=False)
+        monkeypatch.delenv("JEV_API_TOKEN", raising=False)
+
+
+def test_container_flag_does_not_open_other_hosts(monkeypatch, tmp_path) -> None:
+    env = _host_env(monkeypatch, tmp_path, "192.0.2.10")
+    monkeypatch.setenv("JEV_CONTAINER", "1")
+    try:
+        load_settings(dotenv_path=env)
+        raise AssertionError("expected ValueError for a non-loopback, non-container host")
+    except ValueError as exc:
+        assert "not allowed" in str(exc)
+    finally:
+        monkeypatch.delenv("JEV_HOST", raising=False)
+        monkeypatch.delenv("JEV_API_TOKEN", raising=False)
+
+
 def test_index_served(client) -> None:
     res = client.get("/")
     assert res.status_code == 200
